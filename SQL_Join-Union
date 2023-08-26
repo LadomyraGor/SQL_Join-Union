@@ -1,0 +1,64 @@
+Example of using common table expressions (CTE) in SQL, joining and unioning different data sources, and counting marketing metrics (particularly, ROMI).
+
+--MAIN TASK
+
+SELECT ad_date, campaign_name, SUM(spend) AS total_spend, SUM(impressions) AS total_impressions, SUM(clicks) AS total_clicks, SUM(value) AS total_value
+FROM (
+
+WITH fb_CTE AS (
+	SELECT pfabd.ad_date, pfabd.campaign_id, pfabd.adset_id, pfa.adset_name, pfa.adset_id, pfc.campaign_id, pfc.campaign_name, pfabd.spend, pfabd.impressions, pfabd.reach, pfabd.clicks, pfabd.leads, pfabd.value
+	FROM public.facebook_ads_basic_daily pfabd
+	LEFT JOIN public.facebook_campaign pfc ON pfabd.campaign_id = pfc.campaign_id
+	LEFT JOIN public.facebook_adset pfa ON pfabd.adset_id = pfa.adset_id
+	),
+	
+g_CTE AS (
+	SELECT ad_date, campaign_name, adset_name, spend, impressions, clicks, value
+	FROM public.google_ads_basic_daily pgabd
+	)
+
+SELECT fb_CTE.ad_date, fb_CTE.campaign_name, fb_CTE.spend, fb_CTE.impressions, fb_CTE.clicks, fb_CTE.value
+FROM fb_CTE
+
+UNION ALL 
+			
+SELECT g_CTE.ad_date, g_CTE.campaign_name, g_CTE.spend, g_CTE.impressions, g_CTE.clicks, g_CTE.value
+FROM g_CTE
+) AS CTE
+
+GROUP BY ad_date, campaign_name;
+
+
+--BONUS
+
+WITH global_CTE AS (
+
+WITH fb_CTE AS (
+	SELECT pfabd.ad_date, pfabd.campaign_id, pfabd.adset_id, pfa.adset_name, pfa.adset_id, pfc.campaign_id, pfc.campaign_name, pfabd.spend, pfabd.value
+	FROM public.facebook_ads_basic_daily pfabd
+	LEFT JOIN public.facebook_campaign pfc ON pfabd.campaign_id = pfc.campaign_id
+	LEFT JOIN public.facebook_adset pfa ON pfabd.adset_id = pfa.adset_id
+	),
+
+g_CTE AS (
+	SELECT ad_date, campaign_name, adset_name, spend, value
+	FROM public.google_ads_basic_daily pgabd
+)
+
+SELECT fb_CTE.ad_date, fb_CTE.campaign_name, fb_CTE.adset_name, fb_CTE.spend, fb_CTE.value
+FROM fb_CTE
+
+UNION ALL 
+			
+SELECT g_CTE.ad_date, g_CTE.campaign_name, g_CTE.adset_name, g_CTE.spend, g_CTE.value
+FROM g_CTE
+)
+
+SELECT campaign_name, adset_name,
+ROUND((CAST(SUM(value) AS NUMERIC) - CAST(SUM(spend) AS NUMERIC))/CAST(SUM(spend) AS NUMERIC)*100) AS ROMI
+FROM global_CTE
+
+GROUP BY campaign_name, adset_name
+HAVING SUM(spend)>500000
+ORDER BY ROMI DESC
+LIMIT 1
