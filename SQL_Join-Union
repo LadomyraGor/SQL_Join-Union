@@ -1,4 +1,4 @@
-Example of using common table expressions (CTE) in SQL, joining and unioning different data sources, and counting marketing metrics (particularly, ROMI).
+--Example of using common table expressions (CTE) in SQL, joining and unioning different data sources, and counting marketing metrics (particularly, ROMI).
 
 --MAIN TASK
 
