@@ -1,1 +1,77 @@
--
+-- Example of using common table expressions (CTE) in SQL, window functions, unioning different data sources,
+COALESCE and CASE functions,  and counting marketing metrics (CTR, CPC, CPM, ROMI).
+
+WITH cte_1 AS (
+    SELECT f.ad_date
+         , f.url_parameters
+         , (COALESCE (f.spend, 0)) AS spend
+         , (COALESCE (f.impressions, 0)) AS impressions
+         , (COALESCE (f.reach, 0)) AS reach
+         , (COALESCE (f.clicks, 0)) AS clicks
+         , (COALESCE (f.leads, 0)) AS leads
+         , (COALESCE (f.value, 0)) AS value
+    FROM public.facebook_ads_basic_daily f
+    UNION ALL
+    SELECT g.ad_date
+         , g.url_parameters
+         , (COALESCE (g.spend, 0)) AS spend
+         , (COALESCE (g.impressions, 0)) AS impressions
+         , (COALESCE (g.reach, 0)) AS reach
+         , (COALESCE (g.clicks, 0)) AS clicks
+         , (COALESCE (g.leads, 0)) AS leads
+         , (COALESCE (g.value, 0)) AS value
+    FROM public.google_ads_basic_daily g
+),
+
+cte_2 AS (SELECT date_trunc ('month', ad_date) AS ad_month
+   , CASE
+    	WHEN (split_part(split_part(url_parameters,'utm_campaign=',-1),'&',1)) <>'nan' THEN decode_url_part(LOWER(split_part(split_part(url_parameters,'utm_campaign=',-1),'&',1)))
+    	WHEN (split_part(split_part(url_parameters,'utm_campaign=',-1),'&',1)) ='nan' THEN NULL
+    END AS utm_campaign
+   , SUM(spend) AS "total_spend"
+   , SUM(impressions) AS "total_impressions"
+   , SUM(clicks) AS "total_clicks"
+   , SUM(value) AS "total_value"
+   , CASE
+		WHEN SUM(clicks)<>0 THEN (ROUND(CAST(SUM(spend) AS NUMERIC) / CAST(SUM(clicks) AS NUMERIC)))
+		WHEN SUM(clicks)=0 THEN 0
+    END AS CPC
+   , CASE
+		WHEN SUM(clicks)<>0 THEN (ROUND(CAST(SUM(spend) AS NUMERIC) / CAST(SUM(clicks) AS NUMERIC)*1000))
+		WHEN SUM(clicks)=0 THEN 0
+    END AS CPM
+   , CASE
+		WHEN SUM(impressions)<>0 THEN (ROUND(CAST(SUM(clicks) AS NUMERIC) / CAST(SUM(impressions) AS NUMERIC)*100))
+		WHEN SUM(impressions)=0 THEN 0
+    END AS CTR
+   , CASE
+		WHEN SUM(spend)<>0 THEN (ROUND((CAST(SUM(value) AS NUMERIC) - CAST(SUM(spend) AS NUMERIC))/CAST(SUM(spend) AS NUMERIC)*100))
+		WHEN SUM(spend)=0 THEN 0
+    END AS ROMI
+    FROM cte_1
+    GROUP BY 1, 2
+),
+
+cte_3 AS (
+    SELECT *
+    , LAG(ROMI) over(partition by utm_campaign order by ad_month desc) as previous_month_romi
+    , LAG(CTR) over(partition by utm_campaign order by ad_month desc) as previous_month_ctr
+    , LAG(CPM) over(partition by utm_campaign order by ad_month desc) as previous_month_cpm
+    FROM cte_2
+)
+
+SELECT *
+    , CASE
+        WHEN previous_month_cpm > 0 THEN cpm::numeric / previous_month_cpm - 1
+        WHEN previous_month_cpm = 0 AND cpm > 0 THEN 1
+        END AS cpm_change
+    , CASE
+        WHEN previous_month_ctr > 0 THEN ctr::numeric / previous_month_ctr - 1
+        WHEN previous_month_ctr = 0 AND ctr > 0 THEN 1
+        END AS ctr_change
+    , CASE
+        WHEN previous_month_romi > 0 THEN romi::numeric / previous_month_romi - 1
+        WHEN previous_month_romi = 0 AND romi > 0 THEN 1
+        END AS romi_change
+
+FROM cte_3;
